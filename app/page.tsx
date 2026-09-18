@@ -1,12 +1,46 @@
 "use client";
 
-import { ChangeEvent, useMemo, useState } from "react";
+import { ChangeEvent, useEffect, useMemo, useState } from "react";
 
-type Asset = { id: string; name: string; url: string; width: number; height: number };
+type Asset = {
+  id: string;
+  name: string;
+  url: string;
+  width: number;
+  height: number;
+  dataUrl: string;
+};
 type Layer = { id: string; name: string; assets: Asset[] };
 type Specimen = { id: number; assets: Asset[]; dataUrl: string; width: number; height: number };
 
-const emptyLayer = (index: number): Layer => ({ id: crypto.randomUUID(), name: `Layer ${index}`, assets: [] });
+type PersistedAsset = {
+  id: string;
+  name: string;
+  width: number;
+  height: number;
+  dataUrl: string;
+};
+type PersistedLayer = { id: string; name: string; assets: PersistedAsset[] };
+type PersistedSpecimen = {
+  id: number;
+  assets: PersistedAsset[];
+  dataUrl: string;
+  width: number;
+  height: number;
+};
+type PersistedState = {
+  version: 1;
+  layers: PersistedLayer[];
+  specimens: PersistedSpecimen[];
+};
+
+const STORAGE_KEY = "cryogenic-room-state-v1";
+
+const emptyLayer = (index: number): Layer => ({
+  id: crypto.randomUUID(),
+  name: `Layer ${index}`,
+  assets: [],
+});
 
 function loadImage(src: string) {
   return new Promise<HTMLImageElement>((resolve, reject) => {
@@ -15,6 +49,47 @@ function loadImage(src: string) {
     image.onerror = reject;
     image.src = src;
   });
+}
+
+function fileToDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+function dataUrlToObjectUrl(dataUrl: string) {
+  const [header, base64] = dataUrl.split(",");
+  if (!header || !base64) throw new Error("Invalid persisted image data");
+
+  const mime = header.match(/^data:(.*?);base64$/)?.[1] || "image/png";
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+
+  return URL.createObjectURL(new Blob([bytes], { type: mime }));
+}
+
+function toPersistedAsset(asset: Asset): PersistedAsset {
+  return {
+    id: asset.id,
+    name: asset.name,
+    width: asset.width,
+    height: asset.height,
+    dataUrl: asset.dataUrl,
+  };
+}
+
+function restoreAsset(asset: PersistedAsset): Asset {
+  return {
+    ...asset,
+    url: dataUrlToObjectUrl(asset.dataUrl),
+  };
 }
 
 async function compose(assets: Asset[]) {
@@ -38,33 +113,121 @@ export default function Home() {
   const [selected, setSelected] = useState<Specimen | null>(null);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("SYSTEM READY");
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+
+      if (raw) {
+        const saved = JSON.parse(raw) as PersistedState;
+
+        if (saved.version === 1) {
+          setLayers(
+            saved.layers.map((layer) => ({
+              ...layer,
+              assets: layer.assets.map(restoreAsset),
+            })),
+          );
+
+          setSpecimens(
+            saved.specimens.map((specimen) => ({
+              ...specimen,
+              assets: specimen.assets.map(restoreAsset),
+            })),
+          );
+
+          setStatus("LOCAL STATE RESTORED");
+        }
+      }
+    } catch (error) {
+      console.error("Unable to restore Cryogenic Room state.", error);
+      setStatus("LOCAL STATE RECOVERY FAILED");
+    } finally {
+      setHydrated(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+
+    const saved: PersistedState = {
+      version: 1,
+      layers: layers.map((layer) => ({
+        id: layer.id,
+        name: layer.name,
+        assets: layer.assets.map(toPersistedAsset),
+      })),
+      specimens: specimens.map((specimen) => ({
+        id: specimen.id,
+        assets: specimen.assets.map(toPersistedAsset),
+        dataUrl: specimen.dataUrl,
+        width: specimen.width,
+        height: specimen.height,
+      })),
+    };
+
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
+    } catch (error) {
+      console.error("Unable to persist Cryogenic Room state.", error);
+      setStatus("LOCAL STORAGE LIMIT REACHED");
+    }
+  }, [hydrated, layers, specimens]);
 
   const usableLayers = useMemo(() => layers.filter((layer) => layer.assets.length > 0), [layers]);
-  const possible = useMemo(() => usableLayers.reduce((total, layer) => total * layer.assets.length, usableLayers.length ? 1 : 0), [usableLayers]);
+  const possible = useMemo(
+    () => usableLayers.reduce((total, layer) => total * layer.assets.length, usableLayers.length ? 1 : 0),
+    [usableLayers],
+  );
 
   const addLayer = () => setLayers((current) => [...current, emptyLayer(current.length + 1)]);
 
-  const removeLayer = (layerId: string) => setLayers((current) => current.filter((layer) => layer.id !== layerId));
+  const removeLayer = (layerId: string) =>
+    setLayers((current) => {
+      const layer = current.find((item) => item.id === layerId);
+      layer?.assets.forEach((asset) => URL.revokeObjectURL(asset.url));
+      return current.filter((item) => item.id !== layerId);
+    });
 
   const uploadAssets = async (event: ChangeEvent<HTMLInputElement>, layerId: string) => {
     const files = Array.from(event.target.files || []).filter((file) => file.type === "image/png");
     if (!files.length) return;
-    const assets = await Promise.all(files.map(async (file) => {
-      const url = URL.createObjectURL(file);
-      const image = await loadImage(url);
-      return { id: crypto.randomUUID(), name: file.name, url, width: image.naturalWidth, height: image.naturalHeight };
-    }));
-    setLayers((current) => current.map((layer) => layer.id === layerId ? { ...layer, assets: [...layer.assets, ...assets] } : layer));
+
+    const assets = await Promise.all(
+      files.map(async (file) => {
+        const dataUrl = await fileToDataUrl(file);
+        const url = URL.createObjectURL(file);
+        const image = await loadImage(url);
+
+        return {
+          id: crypto.randomUUID(),
+          name: file.name,
+          url,
+          width: image.naturalWidth,
+          height: image.naturalHeight,
+          dataUrl,
+        };
+      }),
+    );
+
+    setLayers((current) =>
+      current.map((layer) =>
+        layer.id === layerId ? { ...layer, assets: [...layer.assets, ...assets] } : layer,
+      ),
+    );
     event.target.value = "";
   };
 
   const removeAsset = (layerId: string, assetId: string) => {
-    setLayers((current) => current.map((layer) => {
-      if (layer.id !== layerId) return layer;
-      const asset = layer.assets.find((item) => item.id === assetId);
-      if (asset) URL.revokeObjectURL(asset.url);
-      return { ...layer, assets: layer.assets.filter((item) => item.id !== assetId) };
-    }));
+    setLayers((current) =>
+      current.map((layer) => {
+        if (layer.id !== layerId) return layer;
+        const asset = layer.assets.find((item) => item.id === assetId);
+        if (asset) URL.revokeObjectURL(asset.url);
+        return { ...layer, assets: layer.assets.filter((item) => item.id !== assetId) };
+      }),
+    );
   };
 
   const generate = async () => {
@@ -73,21 +236,27 @@ export default function Home() {
       setStage(1);
       return;
     }
+
     setBusy(true);
     setStatus("CRYOGENIC SYNTHESIS IN PROGRESS...");
     const target = Math.min(Math.max(amount, 1), possible);
     const seen = new Set<string>();
     const next: Specimen[] = [];
     let attempts = 0;
+
     while (next.length < target && attempts < target * 20) {
       attempts += 1;
-      const picked = usableLayers.map((layer) => layer.assets[Math.floor(Math.random() * layer.assets.length)]);
+      const picked = usableLayers.map(
+        (layer) => layer.assets[Math.floor(Math.random() * layer.assets.length)],
+      );
       const key = picked.map((asset) => asset.id).join("|");
       if (seen.has(key)) continue;
       seen.add(key);
+
       const composed = await compose(picked);
       next.push({ id: next.length + 1, assets: picked, ...composed });
     }
+
     setSpecimens(next);
     setBusy(false);
     setStatus(`SYNTHESIS COMPLETE // ${next.length} SPECIMENS RECOVERED`);
@@ -95,7 +264,9 @@ export default function Home() {
   };
 
   const deleteSpecimen = (id: number) => {
-    setSpecimens((current) => current.filter((item) => item.id !== id).map((item, index) => ({ ...item, id: index + 1 })));
+    setSpecimens((current) =>
+      current.filter((item) => item.id !== id).map((item, index) => ({ ...item, id: index + 1 })),
+    );
     setSelected(null);
   };
 
