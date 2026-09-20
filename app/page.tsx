@@ -583,7 +583,7 @@ export default function Home() {
         generated += 1;
 
         if (generated % GENERATION_BATCH_SIZE === 0 || generated === target) {
-          setTotalSpecimens((current) => mode === "new" ? generated : current + generated);
+          setTotalSpecimens(mode === "new" ? generated : totalSpecimens + generated);
           setStatus(mode === "integrate"
             ? `INTEGRATING // ${generated.toLocaleString()} / ${target.toLocaleString()}`
             : `SYNTHESIZING // ${generated.toLocaleString()} / ${target.toLocaleString()}`);
@@ -736,10 +736,10 @@ export default function Home() {
                   ? <button className="synthesize" disabled={busy || !possible} onClick={() => void generate("new")}>{busy ? "SYNTHESIZING..." : "▶ INITIATE CRYOGENIC SYNTHESIS"}</button>
                   : dnaChanged
                     ? <div className="dna-change-notice"><strong>DNA CONFIGURATION CHANGED</strong><span>Choose how the active DNA should affect the current preview.</span></div>
-                    : <div className="synthesis-actions">
+                    : <>
                         <button className="synthesize" disabled={busy || !possible || pendingStatsLoading || !pendingSpecimens} onClick={() => void generate("integrate")}>{busy ? "INTEGRATING..." : "＋ INTEGRATE CRYOGENIC SYNTHESIS"}</button>
                         <button className="ghost wide" disabled={busy || !possible} onClick={() => void generate("new")}>▶ INITIATE NEW CRYOGENIC SYNTHESIS</button>
-                      </div>
+                      </>
               </div></section>}
 
           {stage === 3 && <section className="module">
