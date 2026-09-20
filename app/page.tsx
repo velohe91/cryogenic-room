@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { ChangeEvent, useEffect, useMemo, useState } from "react";
 
 type Asset = {
@@ -282,7 +283,7 @@ export default function Home() {
       <div className="scanlines" />
       <header className="lab-header">
         <div className="brand-block"><span className="eyebrow">VΣLOHE SYSTEM // GENERATION BAY</span><h1>CRYOGENIC ROOM</h1><p>PIXEL-ARCADE NFT SPECIMEN GENERATOR</p></div>
-        <div className="system-panel"><span>CORE SYNC</span><b>ONLINE</b><small>{status}</small></div>
+        <div className="system-panel"><span>CORE SYNC</span><b>ONLINE</b><small>{status}</small><Link className="factory-entry" href="/factory">ENTER THE FACTORY →</Link></div>
       </header>
 
       <section className="lab-stage">
