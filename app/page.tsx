@@ -31,9 +31,10 @@ type PersistedAssetMeta = {
 };
 type PersistedLayer = { id: string; name: string; assets: PersistedAssetMeta[] };
 type PersistedState = {
-  version: 2;
+  version: 3;
   layers: PersistedLayer[];
   specimenCount: number;
+  dnaFingerprints: string[];
 };
 
 type StoredAsset = PersistedAssetMeta & { blob: Blob };
@@ -45,7 +46,7 @@ type StoredSpecimen = {
   height: number;
 };
 
-const STORAGE_KEY = "cryogenic-room-state-v2";
+const STORAGE_KEY = "cryogenic-room-state-v3";
 const LEGACY_STORAGE_KEY = "cryogenic-room-state-v1";
 const DB_NAME = "cryogenic-room-db";
 const DB_VERSION = 1;
@@ -119,6 +120,38 @@ async function countSpecimenRecords() {
   return new Promise<number>((resolve, reject) => {
     const request = db.transaction("specimens", "readonly").objectStore("specimens").count();
     request.onsuccess = () => { db.close(); resolve(request.result); };
+    request.onerror = () => { db.close(); reject(request.error); };
+  });
+}
+
+async function getSpecimenCombinationStats(layers: Layer[]) {
+  const db = await openDatabase();
+  return new Promise<{ allKeys: Set<string>; currentKeys: Set<string> }>((resolve, reject) => {
+    const store = db.transaction("specimens", "readonly").objectStore("specimens");
+    const request = store.openCursor();
+    const allKeys = new Set<string>();
+    const currentKeys = new Set<string>();
+    const layerAssetIds = layers.map((layer) => new Set(layer.assets.map((asset) => asset.id)));
+
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor) {
+        db.close();
+        resolve({ allKeys, currentKeys });
+        return;
+      }
+
+      const record = cursor.value as StoredSpecimen;
+      const key = record.assets.map((asset) => asset.id).join("|");
+      allKeys.add(key);
+
+      const matchesCurrentDna =
+        record.assets.length === layers.length &&
+        record.assets.every((asset, index) => layerAssetIds[index]?.has(asset.id));
+
+      if (matchesCurrentDna) currentKeys.add(key);
+      cursor.continue();
+    };
     request.onerror = () => { db.close(); reject(request.error); };
   });
 }
@@ -234,6 +267,28 @@ function revokeSpecimenUrls(items: Specimen[]) {
   items.forEach((item) => URL.revokeObjectURL(item.url));
 }
 
+function buildDnaFingerprint(sourceLayers: Array<{ id: string; name: string; assets: Array<{ id: string; name: string }> }>) {
+  return JSON.stringify(
+    sourceLayers.map((layer) => ({
+      id: layer.id,
+      name: layer.name,
+      assets: layer.assets.map((asset) => ({ id: asset.id, name: asset.name })),
+    })),
+  );
+}
+
+function assetsFromCombinationIndex(layers: Layer[], index: number) {
+  let remainder = index;
+  const picked = new Array<Asset>(layers.length);
+  for (let layerIndex = layers.length - 1; layerIndex >= 0; layerIndex -= 1) {
+    const assets = layers[layerIndex].assets;
+    const assetIndex = remainder % assets.length;
+    remainder = Math.floor(remainder / assets.length);
+    picked[layerIndex] = assets[assetIndex];
+  }
+  return picked;
+}
+
 export default function Home() {
   const [layers, setLayers] = useState<Layer[]>([1, 2, 3].map((index) => ({ id: crypto.randomUUID(), name: `Layer ${index}`, assets: [] })));
   const [stage, setStage] = useState(1);
@@ -247,6 +302,15 @@ export default function Home() {
   const [status, setStatus] = useState("SYSTEM READY");
   const [hydrated, setHydrated] = useState(false);
   const [specimenRevision, setSpecimenRevision] = useState(0);
+  const [dnaFingerprints, setDnaFingerprints] = useState<string[]>([]);
+  const [pendingSpecimens, setPendingSpecimens] = useState(0);
+  const [pendingStatsLoading, setPendingStatsLoading] = useState(false);
+
+  const activeDnaFingerprint = useMemo(
+    () => buildDnaFingerprint(layers),
+    [layers],
+  );
+  const dnaChanged = totalSpecimens > 0 && dnaFingerprints.length > 0 && !dnaFingerprints.includes(activeDnaFingerprint);
 
   const totalPages = Math.max(1, Math.ceil(totalSpecimens / pageSize));
 
@@ -281,7 +345,7 @@ export default function Home() {
               });
             }
             raw = JSON.stringify({
-              version: 2,
+              version: 3,
               layers: (saved.layers ?? []).map((layer: any) => ({
                 id: layer.id,
                 name: layer.name,
@@ -290,6 +354,11 @@ export default function Home() {
                 })),
               })),
               specimenCount: saved.specimens?.length ?? 0,
+              dnaFingerprints: saved.specimens?.length ? [buildDnaFingerprint((saved.layers ?? []).map((layer: any) => ({
+                id: layer.id,
+                name: layer.name,
+                assets: (layer.assets ?? []).map((asset: any) => ({ id: asset.id, name: asset.name })),
+              })))] : [],
             } satisfies PersistedState);
             localStorage.removeItem(LEGACY_STORAGE_KEY);
             setStatus("LEGACY STATE MIGRATED TO INDEXEDDB");
@@ -298,7 +367,7 @@ export default function Home() {
 
         if (raw) {
           const saved = JSON.parse(raw) as PersistedState;
-          if (saved.version === 2 && !cancelled) {
+          if ((saved.version === 2 || saved.version === 3) && !cancelled) {
             const restoredLayers: Layer[] = [];
             for (const layer of saved.layers) {
               const restoredAssets: Asset[] = [];
@@ -310,6 +379,13 @@ export default function Home() {
             }
             setLayers(restoredLayers);
             setTotalSpecimens(saved.specimenCount);
+            const restoredFingerprint = buildDnaFingerprint(restoredLayers);
+            const restoredHistory = saved.version === 3 && Array.isArray(saved.dnaFingerprints) && saved.dnaFingerprints.length
+              ? saved.dnaFingerprints
+              : saved.specimenCount
+                ? [restoredFingerprint]
+                : [];
+            setDnaFingerprints(restoredHistory);
             if (saved.specimenCount) setStatus("LOCAL STATE RESTORED // INDEXEDDB");
           }
         }
@@ -328,13 +404,14 @@ export default function Home() {
   useEffect(() => {
     if (!hydrated) return;
     const saved: PersistedState = {
-      version: 2,
+      version: 3,
       layers: layers.map((layer) => ({
         id: layer.id,
         name: layer.name,
         assets: layer.assets.map(({ id, name, width, height }) => ({ id, name, width, height })),
       })),
       specimenCount: totalSpecimens,
+      dnaFingerprints,
     };
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
@@ -342,7 +419,7 @@ export default function Home() {
       console.error("Unable to persist Cryogenic Room metadata.", error);
       setStatus("LOCAL METADATA STORAGE FAILED");
     }
-  }, [hydrated, layers, totalSpecimens]);
+  }, [hydrated, layers, totalSpecimens, dnaFingerprints]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -377,6 +454,34 @@ export default function Home() {
     () => usableLayers.reduce((total, layer) => total * layer.assets.length, usableLayers.length ? 1 : 0),
     [usableLayers],
   );
+
+  useEffect(() => {
+    if (!hydrated || stage !== 2 || !totalSpecimens || !usableLayers.length || usableLayers.some((layer) => !layer.assets.length)) {
+      setPendingSpecimens(totalSpecimens ? Math.max(0, possible - totalSpecimens) : possible);
+      setPendingStatsLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setPendingStatsLoading(true);
+
+    getSpecimenCombinationStats(usableLayers)
+      .then(({ currentKeys }) => {
+        if (!cancelled) setPendingSpecimens(Math.max(0, possible - currentKeys.size));
+      })
+      .catch((error) => {
+        console.error("Unable to calculate pending synthesis combinations.", error);
+        if (!cancelled) {
+          setPendingSpecimens(0);
+          setStatus("PENDING SYNTHESIS CALCULATION FAILED");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setPendingStatsLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [hydrated, stage, totalSpecimens, possible, activeDnaFingerprint, usableLayers]);
 
   const addLayer = () => setLayers((current) => [...current, { id: crypto.randomUUID(), name: `Layer ${current.length + 1}`, assets: [] }]);
 
@@ -420,54 +525,72 @@ export default function Home() {
     }));
   };
 
-  const generate = async () => {
+  const generate = async (mode: "new" | "integrate") => {
     if (!usableLayers.length || usableLayers.some((layer) => !layer.assets.length)) {
       setStatus("ERROR: EVERY LAYER NEEDS PNG ASSETS");
       setStage(1);
       return;
     }
 
+    const available = mode === "integrate" ? pendingSpecimens : possible;
+    if (!available) {
+      setStatus(mode === "integrate" ? "NO UNIQUE SPECIMENS REMAINING" : "NO VALID DNA COMBINATIONS");
+      return;
+    }
+
     setBusy(true);
-    setStatus("CRYOGENIC SYNTHESIS IN PROGRESS...");
-    const target = Math.min(Math.max(amount, 1), possible);
-    const seen = new Set<string>();
+    setStatus(mode === "integrate" ? "INTEGRATING CRYOGENIC SYNTHESIS..." : "CRYOGENIC SYNTHESIS IN PROGRESS...");
+    const target = Math.min(Math.max(amount, 1), available);
+    const existingStats = mode === "integrate" ? await getSpecimenCombinationStats(usableLayers) : { allKeys: new Set<string>(), currentKeys: new Set<string>() };
+    const seen = existingStats.allKeys;
+    let generated = 0;
+    let scanned = 0;
+    const startIndex = Math.floor(Math.random() * possible);
+    const nextIdStart = mode === "integrate" ? totalSpecimens + 1 : 1;
 
     try {
-      await clearSpecimenRecords();
-      setTotalSpecimens(0);
-      setPage(1);
-
-      let generated = 0;
-      let attempts = 0;
-
-      while (generated < target && attempts < target * 20) {
-        const batchEnd = Math.min(generated + GENERATION_BATCH_SIZE, target);
-
-        while (generated < batchEnd && attempts < target * 20) {
-          attempts += 1;
-          const picked = usableLayers.map((layer) => layer.assets[Math.floor(Math.random() * layer.assets.length)]);
-          const key = picked.map((asset) => asset.id).join("|");
-          if (seen.has(key)) continue;
-          seen.add(key);
-
-          const composed = await compose(picked);
-          await putSpecimenRecord({
-            id: generated + 1,
-            assets: picked.map((asset, index) => assetMeta(asset, usableLayers[index]?.name || "DNA Layer")),
-            blob: composed.blob,
-            width: composed.width,
-            height: composed.height,
-          });
-          generated += 1;
-        }
-
-        setTotalSpecimens(generated);
-        setStatus(`SYNTHESIZING // ${generated.toLocaleString()} / ${target.toLocaleString()}`);
-        await new Promise((resolve) => setTimeout(resolve, 0));
+      if (mode === "new") {
+        await clearSpecimenRecords();
+        setTotalSpecimens(0);
+        setPage(1);
       }
 
-      setTotalSpecimens(generated);
-      setStatus(`SYNTHESIS COMPLETE // ${generated} SPECIMENS RECOVERED`);
+      while (generated < target && scanned < possible) {
+        const combinationIndex = (startIndex + scanned) % possible;
+        scanned += 1;
+        const picked = assetsFromCombinationIndex(usableLayers, combinationIndex);
+        const key = picked.map((asset) => asset.id).join("|");
+        if (seen.has(key)) continue;
+        seen.add(key);
+
+        const composed = await compose(picked);
+        await putSpecimenRecord({
+          id: nextIdStart + generated,
+          assets: picked.map((asset, index) => assetMeta(asset, usableLayers[index]?.name || "DNA Layer")),
+          blob: composed.blob,
+          width: composed.width,
+          height: composed.height,
+        });
+        generated += 1;
+
+        if (generated % GENERATION_BATCH_SIZE === 0 || generated === target) {
+          setTotalSpecimens((current) => mode === "new" ? generated : current + generated);
+          setStatus(mode === "integrate"
+            ? `INTEGRATING // ${generated.toLocaleString()} / ${target.toLocaleString()}`
+            : `SYNTHESIZING // ${generated.toLocaleString()} / ${target.toLocaleString()}`);
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        }
+      }
+
+      const finalTotal = mode === "integrate" ? totalSpecimens + generated : generated;
+      setTotalSpecimens(finalTotal);
+      setDnaFingerprints((current) => mode === "new"
+        ? [activeDnaFingerprint]
+        : Array.from(new Set([...current, activeDnaFingerprint])));
+      setPendingSpecimens(Math.max(0, possible - (mode === "integrate" ? pendingSpecimens - generated : generated)));
+      setStatus(mode === "integrate"
+        ? `INTEGRATION COMPLETE // ${generated} SPECIMENS ADDED // ${finalTotal} TOTAL RECOVERED`
+        : `SYNTHESIS COMPLETE // ${generated} SPECIMENS RECOVERED`);
       setStage(3);
       setPage(1);
     } catch (error) {
@@ -593,7 +716,13 @@ export default function Home() {
             <button className="ghost wide" onClick={addLayer}>＋ ADD DNA LAYER</button>
           </section>}
 
-          {stage === 2 && <section className="module generate-module"><div className="module-title"><div><span>LAB MODULE 02</span><h2>GENERATE</h2><p>Initiate cryogenic synthesis.</p></div></div><div className="synthesis-core"><div className="core-ring"><span>DNA</span></div><div className="readouts"><div><span>ACTIVE LAYERS</span><b>{usableLayers.length}</b></div><div><span>POSSIBLE COMBINATIONS</span><b>{possible.toLocaleString()}</b></div><div><span>OUTPUT COUNT</span><input type="number" min="1" max={Math.max(1, possible)} value={amount} onChange={(e) => setAmount(Number(e.target.value))} /></div></div></div><button className="synthesize" disabled={busy || !possible} onClick={generate}>{busy ? "SYNTHESIZING..." : "▶ INITIATE CRYOGENIC SYNTHESIS"}</button></section>}
+          {stage === 2 && <section className="module generate-module"><div className="module-title"><div><span>LAB MODULE 02</span><h2>GENERATE</h2><p>Initiate cryogenic synthesis.</p></div></div><div className="synthesis-core"><div className="core-ring"><span>DNA</span></div><div className="readouts"><div><span>ACTIVE LAYERS</span><b>{usableLayers.length}</b></div><div><span>POSSIBLE COMBINATIONS</span><b>{possible.toLocaleString()}</b></div><div><span>OUTPUT COUNT</span><input type="number" min="1" max={Math.max(1, possible)} value={amount} onChange={(e) => setAmount(Number(e.target.value))} /></div></div></div><div className="synthesis-actions">
+                {totalSpecimens === 0
+                  ? <button className="synthesize" disabled={busy || !possible} onClick={() => void generate("new")}>{busy ? "SYNTHESIZING..." : "▶ INITIATE CRYOGENIC SYNTHESIS"}</button>
+                  : dnaChanged
+                    ? <div className="dna-change-notice"><strong>DNA CONFIGURATION CHANGED</strong><span>Choose how the active DNA should affect the current preview.</span></div>
+                    : <button className="synthesize" disabled={busy || !possible || pendingStatsLoading || !pendingSpecimens} onClick={() => void generate("integrate")}>{busy ? "INTEGRATING..." : "＋ INTEGRATE CRYOGENIC SYNTHESIS"}</button>}
+              </div></section>}
 
           {stage === 3 && <section className="module">
             <div className="module-title">
@@ -618,6 +747,19 @@ export default function Home() {
       </section>
 
       <footer className="lab-footer"><span>CRYOGENIC ROOM // LOCAL GENERATOR</span><span>PNG ONLY // NO EXTERNAL ASSETS</span><span>VΣLOHE SYSTEM</span></footer>
+
+      {dnaChanged && stage === 2 && <div className="modal-backdrop" onClick={() => {}}><div className="synthesis-choice-modal" onClick={(e) => e.stopPropagation()}>
+        <button className="modal-close" onClick={() => setStage(1)}>×</button>
+        <div className="choice-eyebrow">CRYOGENIC SYSTEM // DNA ALTERATION</div>
+        <h2>DNA CONFIGURATION CHANGED</h2>
+        <p>The active DNA no longer matches the DNA configurations used in the current preview.</p>
+        <div className="choice-stats"><span>CURRENT PREVIEW</span><b>{totalSpecimens.toLocaleString()} RECOVERED</b><span>ACTIVE DNA</span><b>{usableLayers.length} LAYERS // {possible.toLocaleString()} POSSIBLE</b></div>
+        <p>Would you like to integrate the active DNA into the current preview or initiate a new cryogenic synthesis?</p>
+        <div className="choice-actions">
+          <button className="synthesize" disabled={busy || pendingStatsLoading || !pendingSpecimens} onClick={() => { setAmount(Math.min(Math.max(amount, 1), pendingSpecimens)); void generate("integrate"); }}>＋ INTEGRATE ACTIVE DNA</button>
+          <button className="danger wide" disabled={busy} onClick={() => void generate("new")}>▶ INITIATE NEW SYNTHESIS</button>
+        </div>
+      </div></div>}
 
       {selected && <div className="modal-backdrop" onClick={() => setSelected(null)}><div className="specimen-modal" onClick={(e) => e.stopPropagation()}><button className="modal-close" onClick={() => setSelected(null)}>×</button><div className="modal-image"><img src={selected.url} alt="" /></div><div className="modal-info"><span>RECOVERY REPORT</span><h2>SPECIMEN #{String(selected.id).padStart(3, "0")}</h2><p>CANVAS // {selected.width} × {selected.height}px</p><h3>DNA COMPONENTS</h3>{selected.assets.map((asset) => <div className="trait" key={asset.id}><span>{asset.name}</span><small>{asset.width} × {asset.height}px</small></div>)}<div className="modal-actions"><button className="synthesize" onClick={() => download(selected)}>↓ DOWNLOAD PNG</button><button className="danger wide" onClick={() => void deleteSpecimen(selected.id)}>DELETE SPECIMEN</button></div></div></div></div>}
     </main>
