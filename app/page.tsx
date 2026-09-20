@@ -246,6 +246,7 @@ export default function Home() {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("SYSTEM READY");
   const [hydrated, setHydrated] = useState(false);
+  const [specimenRevision, setSpecimenRevision] = useState(0);
 
   const totalPages = Math.max(1, Math.ceil(totalSpecimens / pageSize));
 
@@ -369,7 +370,7 @@ export default function Home() {
     };
     loadPage();
     return () => { cancelled = true; };
-  }, [hydrated, page, pageSize]);
+  }, [hydrated, page, pageSize, specimenRevision]);
 
   const usableLayers = useMemo(() => layers.filter((layer) => layer.assets.length > 0), [layers]);
   const possible = useMemo(
@@ -485,6 +486,7 @@ export default function Home() {
       const nextTotal = Math.max(0, totalSpecimens - 1);
       setTotalSpecimens(nextTotal);
       if (page > Math.max(1, Math.ceil(nextTotal / pageSize)) && removedIndex >= 0) setPage(Math.max(1, page - 1));
+      setSpecimenRevision((current) => current + 1);
       setSelected(null);
       setStatus("SPECIMEN DELETED // SEQUENCE UPDATED");
     } catch (error) {
