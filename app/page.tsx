@@ -725,22 +725,83 @@ export default function Home() {
             <button className="ghost wide" onClick={addLayer}>＋ ADD DNA LAYER</button>
           </section>}
 
-          {stage === 2 && <section className="module generate-module"><div className="module-title"><div><span>LAB MODULE 02</span><h2>GENERATE</h2><p>Initiate cryogenic synthesis.</p></div></div><div className="synthesis-core"><div className="core-ring"><span>DNA</span></div><div className="readouts">
-                <div><span>ACTIVE LAYERS</span><b>{usableLayers.length}</b></div>
-                <div><span>POSSIBLE COMBINATIONS</span><b>{possible.toLocaleString()}</b></div>
-                {totalSpecimens > 0 && <div><span>RECOVERED</span><b>{totalSpecimens.toLocaleString()}</b></div>}
-                {totalSpecimens > 0 && <div><span>REMAINING PENDING TO REVIEW</span><b>{pendingStatsLoading ? "CALCULATING..." : pendingSpecimens.toLocaleString()}</b></div>}
-                <div><span>{totalSpecimens > 0 ? "INTEGRATION COUNT" : "OUTPUT COUNT"}</span><input type="number" min="1" max={Math.max(1, totalSpecimens > 0 ? pendingSpecimens : possible)} value={amount} onChange={(e) => setAmount(Math.max(1, Number(e.target.value) || 1))} disabled={pendingStatsLoading || !possible || (totalSpecimens > 0 && !pendingSpecimens)} /></div>
-              </div></div><div className="synthesis-actions">
-                {totalSpecimens === 0
-                  ? <button className="synthesize" disabled={busy || !possible} onClick={() => void generate("new")}>{busy ? "SYNTHESIZING..." : "▶ INITIATE CRYOGENIC SYNTHESIS"}</button>
-                  : dnaChanged
-                    ? <div className="dna-change-notice"><strong>DNA CONFIGURATION CHANGED</strong><span>Choose how the active DNA should affect the current preview.</span></div>
-                    : <>
-                        <button className="synthesize" disabled={busy || !possible || pendingStatsLoading || !pendingSpecimens} onClick={() => void generate("integrate")}>{busy ? "INTEGRATING..." : "＋ INTEGRATE CRYOGENIC SYNTHESIS"}</button>
-                        <button className="ghost wide" disabled={busy || !possible} onClick={() => void generate("new")}>▶ INITIATE NEW CRYOGENIC SYNTHESIS</button>
-                      </>
-              </div></section>}
+          {stage === 2 && (
+            <section className="module generate-module">
+              <div className="module-title">
+                <div>
+                  <span>LAB MODULE 02</span>
+                  <h2>GENERATE</h2>
+                  <p>Initiate cryogenic synthesis.</p>
+                </div>
+              </div>
+
+              <div className="synthesis-core">
+                <div className="core-ring"><span>DNA</span></div>
+                <div className="readouts">
+                  <div><span>ACTIVE LAYERS</span><b>{usableLayers.length}</b></div>
+                  <div><span>POSSIBLE COMBINATIONS</span><b>{possible.toLocaleString()}</b></div>
+                  {totalSpecimens > 0 && (
+                    <div><span>RECOVERED</span><b>{totalSpecimens.toLocaleString()}</b></div>
+                  )}
+                  {totalSpecimens > 0 && (
+                    <div>
+                      <span>REMAINING PENDING TO REVIEW</span>
+                      <b>{pendingStatsLoading ? "CALCULATING..." : pendingSpecimens.toLocaleString()}</b>
+                    </div>
+                  )}
+                  <div>
+                    <span>{totalSpecimens > 0 ? "INTEGRATION COUNT" : "OUTPUT COUNT"}</span>
+                    <input
+                      type="number"
+                      min="1"
+                      max={Math.max(1, totalSpecimens > 0 ? pendingSpecimens : possible)}
+                      value={amount}
+                      onChange={(e) => setAmount(Math.max(1, Number(e.target.value) || 1))}
+                      disabled={pendingStatsLoading || !possible || (totalSpecimens > 0 && !pendingSpecimens)}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="synthesis-actions">
+                {totalSpecimens === 0 && (
+                  <button
+                    className="synthesize"
+                    disabled={busy || !possible}
+                    onClick={() => void generate("new")}
+                  >
+                    {busy ? "SYNTHESIZING..." : "▶ INITIATE CRYOGENIC SYNTHESIS"}
+                  </button>
+                )}
+
+                {totalSpecimens > 0 && dnaChanged && (
+                  <div className="dna-change-notice">
+                    <strong>DNA CONFIGURATION CHANGED</strong>
+                    <span>Choose how the active DNA should affect the current preview.</span>
+                  </div>
+                )}
+
+                {totalSpecimens > 0 && !dnaChanged && (
+                  <>
+                    <button
+                      className="synthesize"
+                      disabled={busy || !possible || pendingStatsLoading || !pendingSpecimens}
+                      onClick={() => void generate("integrate")}
+                    >
+                      {busy ? "INTEGRATING..." : "＋ INTEGRATE CRYOGENIC SYNTHESIS"}
+                    </button>
+                    <button
+                      className="ghost wide"
+                      disabled={busy || !possible}
+                      onClick={() => void generate("new")}
+                    >
+                      ▶ INITIATE NEW CRYOGENIC SYNTHESIS
+                    </button>
+                  </>
+                )}
+              </div>
+            </section>
+          )}
 
           {stage === 3 && <section className="module">
             <div className="module-title">
