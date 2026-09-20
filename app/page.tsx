@@ -31,10 +31,10 @@ type PersistedAssetMeta = {
 };
 type PersistedLayer = { id: string; name: string; assets: PersistedAssetMeta[] };
 type PersistedState = {
-  version: 3;
+  version: 2 | 3;
   layers: PersistedLayer[];
   specimenCount: number;
-  dnaFingerprints: string[];
+  dnaFingerprints?: string[];
 };
 
 type StoredAsset = PersistedAssetMeta & { blob: Blob };
