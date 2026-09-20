@@ -47,6 +47,7 @@ type StoredSpecimen = {
 };
 
 const STORAGE_KEY = "cryogenic-room-state-v3";
+const PREVIOUS_STORAGE_KEY = "cryogenic-room-state-v2";
 const LEGACY_STORAGE_KEY = "cryogenic-room-state-v1";
 const DB_NAME = "cryogenic-room-db";
 const DB_VERSION = 1;
@@ -322,6 +323,14 @@ export default function Home() {
         const db = await openDatabase();
         db.close();
         let raw = localStorage.getItem(STORAGE_KEY);
+
+        if (!raw) {
+          const previous = localStorage.getItem(PREVIOUS_STORAGE_KEY);
+          if (previous) {
+            raw = previous;
+            localStorage.removeItem(PREVIOUS_STORAGE_KEY);
+          }
+        }
 
         if (!raw) {
           const legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
