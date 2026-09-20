@@ -2,6 +2,7 @@
 
 import { ChangeEvent, useMemo, useState } from "react";
 import "./factory.css";
+import { ConnectWalletButton } from "../../components/web3/ConnectWalletButton";
 
 type Trait = {
   id?: string;
@@ -165,10 +166,13 @@ export default function FactoryPage() {
           <h1>CRYOGENIC FACTORY</h1>
           <p>APPROVED COLLECTION CONTROL // BLOCKCHAIN PREPARATION</p>
         </div>
-        <div className="factory-status">
-          <span>FACTORY STATUS</span>
-          <b>LOCAL</b>
-          <small>{status}</small>
+        <div className="factory-header-actions">
+          <ConnectWalletButton />
+          <div className="factory-status">
+            <span>FACTORY STATUS</span>
+            <b>LOCAL</b>
+            <small>{status}</small>
+          </div>
         </div>
       </header>
 
@@ -245,7 +249,7 @@ export default function FactoryPage() {
       <footer className="factory-footer">
         <span>PHASE 01–03 // UNCHANGED</span>
         <span>PHASE 04 // LOCAL FACTORY</span>
-        <span>NO WALLET // NO MINT // NO BLOCKCHAIN</span>
+        <span>WALLET READY // MINT NOT ACTIVE</span>
       </footer>
 
       {selected && (
