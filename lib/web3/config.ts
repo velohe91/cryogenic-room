@@ -15,14 +15,13 @@ export const robinhood = defineChain({
 });
 
 export const arcChain = defineChain({
-  id: 5042002,
+  id: 5042,
   name: "ARC Chain",
-  nativeCurrency: { name: "USD Coin", symbol: "USDC", decimals: 6 },
-  rpcUrls: { default: { http: ["https://rpc.testnet.arc.network"] } },
+  nativeCurrency: { name: "USD Coin", symbol: "USDC", decimals: 18 },
+  rpcUrls: { default: { http: ["https://rpc.arc-scan.org"] } },
   blockExplorers: {
-    default: { name: "ARC Explorer", url: "https://testnet.arcscan.app" },
+    default: { name: "ARC Explorer", url: "https://arc-scan.org" },
   },
-  testnet: true,
 });
 
 export const PRIMARY_CHAIN = mainnet;
