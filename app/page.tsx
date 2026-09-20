@@ -49,7 +49,7 @@ const STORAGE_KEY = "cryogenic-room-state-v2";
 const LEGACY_STORAGE_KEY = "cryogenic-room-state-v1";
 const DB_NAME = "cryogenic-room-db";
 const DB_VERSION = 1;
-const PAGE_SIZE_OPTIONS = [250, 500, 1000];
+const PAGE_SIZE_OPTIONS = [25, 50, 100, 250, 500, 1000];
 const GENERATION_BATCH_SIZE = 100;
 
 function openDatabase() {
