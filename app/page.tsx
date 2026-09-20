@@ -281,7 +281,27 @@ export default function Home() {
     <main className="lab-shell">
       <div className="scanlines" />
       <header className="lab-header">
-        <div className="brand-block"><span className="eyebrow">VΣLOHE SYSTEM // GENERATION BAY</span><h1>CRYOGENIC ROOM</h1><p>PIXEL-ARCADE NFT SPECIMEN GENERATOR</p></div>
+        <div className="brand-block">
+          <span className="eyebrow">VΣLOHE SYSTEM // GENERATION BAY</span>
+          <h1>CRYOGENIC ROOM</h1>
+          <p>PIXEL-ARCADE NFT SPECIMEN GENERATOR</p>
+          <nav aria-label="Lab destinations" style={{ display: "flex", gap: 16, marginTop: 6, lineHeight: 1 }}>
+            <a
+              href="https://www.cyborgpunks.club/cryogenic-room"
+              target="_top"
+              style={{ color: "#94FDFF", fontSize: 15, letterSpacing: 2, textDecoration: "underline", textUnderlineOffset: 3 }}
+            >
+              VAULT
+            </a>
+            <a
+              href="https://opensea.io/CyborgPunky/created"
+              target="_top"
+              style={{ color: "#F389F5", fontSize: 15, letterSpacing: 2, textDecoration: "underline", textUnderlineOffset: 3 }}
+            >
+              OPEN MARKET
+            </a>
+          </nav>
+        </div>
         <div className="system-panel"><span>CORE SYNC</span><b>ONLINE</b><small>{status}</small></div>
       </header>
 
