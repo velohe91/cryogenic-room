@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import JSZip from "jszip";
 import { ChangeEvent, useEffect, useMemo, useState } from "react";
 
 type Asset = {
@@ -61,9 +62,9 @@ function fileToDataUrl(file: File) {
   });
 }
 
-function dataUrlToObjectUrl(dataUrl: string) {
+function dataUrlToBlob(dataUrl: string) {
   const [header, base64] = dataUrl.split(",");
-  if (!header || !base64) throw new Error("Invalid persisted image data");
+  if (!header || !base64) throw new Error("Invalid image data");
 
   const mime = header.match(/^data:(.*?);base64$/)?.[1] || "image/png";
   const binary = atob(base64);
@@ -73,7 +74,24 @@ function dataUrlToObjectUrl(dataUrl: string) {
     bytes[index] = binary.charCodeAt(index);
   }
 
-  return URL.createObjectURL(new Blob([bytes], { type: mime }));
+  return new Blob([bytes], { type: mime });
+}
+
+function dataUrlToObjectUrl(dataUrl: string) {
+  return URL.createObjectURL(dataUrlToBlob(dataUrl));
+}
+
+function csvCell(value: string | number) {
+  const text = String(value);
+  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function specimenName(specimen: Specimen) {
+  return `Specimen #${String(specimen.id).padStart(3, "0")}`;
+}
+
+function traitValue(asset: Asset) {
+  return asset.name.replace(/\.png$/i, "");
 }
 
 function toPersistedAsset(asset: Asset): PersistedAsset {
@@ -278,6 +296,136 @@ export default function Home() {
     anchor.click();
   };
 
+  const downloadZipBlob = (blob: Blob, filename: string) => {
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  const downloadPreviewZip = async () => {
+    if (!specimens.length) return;
+
+    const zip = new JSZip();
+    const previewFolder = zip.folder("Preview");
+    if (!previewFolder) return;
+
+    const reportHeader = [
+      "specimen",
+      "canvas_width",
+      "canvas_height",
+      "dna_components",
+    ];
+
+    const reportRows = specimens.map((specimen) => [
+      specimenName(specimen),
+      specimen.width,
+      specimen.height,
+      specimen.assets
+        .map((asset) => {
+          const layer = layers.find((item) => item.assets.some((candidate) => candidate.id === asset.id));
+          return `${layer?.name || "DNA Layer"}: ${asset.name}`;
+        })
+        .join(" | "),
+    ]);
+
+    previewFolder.file(
+      "preview-report.csv",
+      [reportHeader, ...reportRows].map((row) => row.map(csvCell).join(",")).join("\n"),
+    );
+
+    specimens.forEach((specimen) => {
+      previewFolder.file(
+        `${specimen.id}.png`,
+        dataUrlToBlob(specimen.dataUrl),
+      );
+    });
+
+    const blob = await zip.generateAsync({ type: "blob" });
+    downloadZipBlob(blob, "Cryogenic-Room-Preview.zip");
+  };
+
+  const downloadOpenSeaZip = async () => {
+    if (!specimens.length) return;
+
+    const zip = new JSZip();
+    const mediaFolder = zip.folder("Media");
+    if (!mediaFolder) return;
+
+    const traitNames = Array.from(
+      new Set(
+        specimens.flatMap((specimen) =>
+          specimen.assets.map((asset) => {
+            const layer = layers.find((item) => item.assets.some((candidate) => candidate.id === asset.id));
+            return layer?.name || "DNA Layer";
+          }),
+        ),
+      ),
+    );
+
+    const metadataHeader = [
+      "tokenID",
+      "name",
+      "description",
+      "file_name",
+      "external_url",
+      ...traitNames.map((name) => `attributes[${name}]`),
+    ];
+
+    const metadataRows = specimens.map((specimen) => {
+      const traits = new Map<string, string>();
+
+      specimen.assets.forEach((asset) => {
+        const layer = layers.find((item) => item.assets.some((candidate) => candidate.id === asset.id));
+        const layerName = layer?.name || "DNA Layer";
+        traits.set(layerName, traitValue(asset));
+      });
+
+      const description = [
+        "Cryogenic Room recovered specimen.",
+        `Canvas // ${specimen.width} x ${specimen.height}px.`,
+        `DNA Components // ${specimen.assets.map((asset) => asset.name).join(" | ")}.`,
+      ].join(" ");
+
+      return [
+        specimen.id,
+        specimenName(specimen),
+        description,
+        `${specimen.id}.png`,
+        "",
+        ...traitNames.map((name) => traits.get(name) || ""),
+      ];
+    });
+
+    zip.file(
+      "metadata-file.csv",
+      [metadataHeader, ...metadataRows].map((row) => row.map(csvCell).join(",")).join("\n"),
+    );
+
+    zip.file(
+      "README.txt",
+      [
+        "CRYOGENIC ROOM // OPENSEA METADATA PACKAGE",
+        "",
+        `Items: ${specimens.length}`,
+        "",
+        "Media/ contains the PNG files referenced by metadata-file.csv.",
+        "metadata-file.csv contains token IDs, names, descriptions, file names, and traits derived from the Phase 1 DNA layers.",
+        "",
+        "Upload this package through OpenSea's metadata upload flow after your collection contract is ready.",
+      ].join("\n"),
+    );
+
+    specimens.forEach((specimen) => {
+      mediaFolder.file(`${specimen.id}.png`, dataUrlToBlob(specimen.dataUrl));
+    });
+
+    const blob = await zip.generateAsync({ type: "blob" });
+    downloadZipBlob(blob, "Cryogenic-Room-OpenSea-Drop.zip");
+  };
+
   return (
     <main className="lab-shell">
       <div className="scanlines" />
@@ -300,7 +448,7 @@ export default function Home() {
 
           {stage === 2 && <section className="module generate-module"><div className="module-title"><div><span>LAB MODULE 02</span><h2>GENERATE</h2><p>Initiate cryogenic synthesis.</p></div></div><div className="synthesis-core"><div className="core-ring"><span>DNA</span></div><div className="readouts"><div><span>ACTIVE LAYERS</span><b>{usableLayers.length}</b></div><div><span>POSSIBLE COMBINATIONS</span><b>{possible.toLocaleString()}</b></div><div><span>OUTPUT COUNT</span><input type="number" min="1" max={Math.max(1, possible)} value={amount} onChange={(e) => setAmount(Number(e.target.value))} /></div></div></div><button className="synthesize" disabled={busy || !possible} onClick={generate}>{busy ? "SYNTHESIZING..." : "▶ INITIATE CRYOGENIC SYNTHESIS"}</button></section>}
 
-          {stage === 3 && <section className="module"><div className="module-title"><div><span>LAB MODULE 03</span><h2>PREVIEW</h2><p>Inspect recovered Cyborg units.</p></div><div className="counter">{specimens.length}<small>RECOVERED</small></div></div>{specimens.length === 0 ? <div className="empty">NO SPECIMENS RECOVERED.<br />RUN CRYOGENIC SYNTHESIS.</div> : <div className="specimen-grid">{specimens.map((specimen) => <article className="specimen" key={specimen.id} onClick={() => setSelected(specimen)}><div className="specimen-image"><img src={specimen.dataUrl} alt={`Specimen ${specimen.id}`} /></div><div className="specimen-footer"><b>SPECIMEN #{String(specimen.id).padStart(3, "0")}</b><span>{specimen.width} × {specimen.height}px</span></div><button onClick={(e) => { e.stopPropagation(); download(specimen); }}>↓ PNG</button></article>)}</div>}</section>}
+          {stage === 3 && <section className="module"><div className="module-title"><div><span>LAB MODULE 03</span><h2>PREVIEW</h2><p>Inspect recovered Cyborg units.</p></div><div className="counter">{specimens.length}<small>RECOVERED</small><div className="bulk-downloads">{specimens.length > 0 && <><button onClick={downloadPreviewZip}>↓ PREVIEW .ZIP</button><button onClick={downloadOpenSeaZip}>↓ OPENSEA .ZIP</button></>}</div></div></div>{specimens.length === 0 ? <div className="empty">NO SPECIMENS RECOVERED.<br />RUN CRYOGENIC SYNTHESIS.</div> : <div className="specimen-grid">{specimens.map((specimen) => <article className="specimen" key={specimen.id} onClick={() => setSelected(specimen)}><div className="specimen-image"><img src={specimen.dataUrl} alt={`Specimen ${specimen.id}`} /></div><div className="specimen-footer"><b>SPECIMEN #{String(specimen.id).padStart(3, "0")}</b><span>{specimen.width} × {specimen.height}px</span></div><button onClick={(e) => { e.stopPropagation(); download(specimen); }}>↓ PNG</button></article>)}</div>}</section>}
         </div>
         <aside className="capsule capsule-right"><div className="capsule-glow" /><span>CR-05</span><i>SUBJECT // SYNTHESIS</i></aside>
       </section>
