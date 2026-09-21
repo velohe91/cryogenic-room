@@ -290,6 +290,32 @@ function assetsFromCombinationIndex(layers: Layer[], index: number) {
   return picked;
 }
 
+function greatestCommonDivisor(a: number, b: number) {
+  let x = Math.abs(a);
+  let y = Math.abs(b);
+  while (y) {
+    const remainder = x % y;
+    x = y;
+    y = remainder;
+  }
+  return x;
+}
+
+function createRandomTraversal(total: number) {
+  if (total <= 1) return { start: 0, step: 1 };
+
+  const start = Math.floor(Math.random() * total);
+  let step = 1;
+
+  if (total > 2) {
+    do {
+      step = Math.floor(Math.random() * (total - 1)) + 1;
+    } while (greatestCommonDivisor(step, total) !== 1);
+  }
+
+  return { start, step };
+}
+
 export default function Home() {
   const [layers, setLayers] = useState<Layer[]>([1, 2, 3].map((index) => ({ id: crypto.randomUUID(), name: `Layer ${index}`, assets: [] })));
   const [stage, setStage] = useState(1);
@@ -554,7 +580,7 @@ export default function Home() {
     const seen = existingStats.allKeys;
     let generated = 0;
     let scanned = 0;
-    const startIndex = Math.floor(Math.random() * possible);
+    const traversal = createRandomTraversal(possible);
     const nextIdStart = mode === "integrate" ? totalSpecimens + 1 : 1;
 
     try {
@@ -565,7 +591,7 @@ export default function Home() {
       }
 
       while (generated < target && scanned < possible) {
-        const combinationIndex = (startIndex + scanned) % possible;
+        const combinationIndex = (traversal.start + (scanned * traversal.step)) % possible;
         scanned += 1;
         const picked = assetsFromCombinationIndex(usableLayers, combinationIndex);
         const key = picked.map((asset) => asset.id).join("|");
