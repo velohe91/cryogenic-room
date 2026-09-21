@@ -196,20 +196,46 @@ async function renumberSpecimensAfter(deletedId: number) {
   return new Promise<void>((resolve, reject) => {
     const tx = db.transaction("specimens", "readwrite");
     const store = tx.objectStore("specimens");
-    const request = store.openCursor();
-    request.onsuccess = () => {
-      const cursor = request.result;
-      if (!cursor) return;
+
+    // "id" is the IndexedDB keyPath, so changing record.id with cursor.update()
+    // cannot move the record to a new key. Move affected records through temporary
+    // negative keys first, then write their final sequential ids.
+    const moveToTemporaryKeys = store.openCursor();
+    moveToTemporaryKeys.onsuccess = () => {
+      const cursor = moveToTemporaryKeys.result;
+      if (!cursor) {
+        const restoreFinalKeys = store.openCursor();
+        restoreFinalKeys.onsuccess = () => {
+          const finalCursor = restoreFinalKeys.result;
+          if (!finalCursor) return;
+
+          const record = finalCursor.value as StoredSpecimen;
+          if (record.id < 0) {
+            const finalRecord = { ...record, id: Math.abs(record.id) - 1 };
+            cursorSafeReplace(store, finalCursor, finalRecord);
+          }
+          finalCursor.continue();
+        };
+        return;
+      }
+
       const record = cursor.value as StoredSpecimen;
       if (record.id > deletedId) {
-        record.id -= 1;
-        cursor.update(record);
+        const temporaryRecord = { ...record, id: -record.id };
+        cursorSafeReplace(store, cursor, temporaryRecord);
       }
       cursor.continue();
     };
+
     tx.oncomplete = () => { db.close(); resolve(); };
     tx.onerror = () => { db.close(); reject(tx.error); };
+    tx.onabort = () => { db.close(); reject(tx.error); };
   });
+}
+
+function cursorSafeReplace(store: IDBObjectStore, cursor: IDBCursorWithValue, record: StoredSpecimen) {
+  cursor.delete();
+  store.put(record);
 }
 
 function dataUrlToBlob(dataUrl: string) {
