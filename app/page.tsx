@@ -359,6 +359,7 @@ export default function Home() {
   const [dnaFingerprints, setDnaFingerprints] = useState<string[]>([]);
   const [pendingSpecimens, setPendingSpecimens] = useState(0);
   const [pendingStatsLoading, setPendingStatsLoading] = useState(false);
+  const [clearPreviewOpen, setClearPreviewOpen] = useState(false);
 
   const activeDnaFingerprint = useMemo(
     () => buildDnaFingerprint(layers),
@@ -663,6 +664,33 @@ export default function Home() {
     }
   };
 
+  const clearPreview = async () => {
+    if (busy || deletingSpecimenId !== null || totalSpecimens === 0) return;
+
+    setBusy(true);
+    setStatus("CLEARING PREVIEW // PURGING RECOVERED SPECIMENS...");
+
+    try {
+      await clearSpecimenRecords();
+      revokeSpecimenUrls(specimens);
+      setSpecimens([]);
+      setSelected(null);
+      setTotalSpecimens(0);
+      setPage(1);
+      setSpecimenRevision((current) => current + 1);
+      setDnaFingerprints([]);
+      setPendingSpecimens(possible);
+      setClearPreviewOpen(false);
+      setStage(2);
+      setStatus("PREVIEW CLEARED // DNA LAYERS PRESERVED");
+    } catch (error) {
+      console.error("Unable to clear Cryogenic Room preview.", error);
+      setStatus("PREVIEW CLEAR FAILED");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const deleteSpecimen = async (id: number) => {
     if (deletingSpecimenId !== null) return;
 
@@ -883,6 +911,7 @@ export default function Home() {
             </div>
             {totalSpecimens === 0 ? <div className="empty">NO SPECIMENS RECOVERED.<br />RUN CRYOGENIC SYNTHESIS.</div> : <>
               <div className="preview-toolbar">
+                <button className="danger clear-preview-button" disabled={busy || deletingSpecimenId !== null} onClick={() => setClearPreviewOpen(true)}>× CLEAR PREVIEW</button>
                 <div><span>DISPLAYING</span><b>{currentRangeStart} — {currentRangeEnd} / {totalSpecimens.toLocaleString()}</b></div>
                 <label><span>PER PAGE</span><select value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }} disabled={busy}>{PAGE_SIZE_OPTIONS.map((size) => <option key={size} value={size}>{size}</option>)}</select></label>
                 <div><span>PREVIEW PAGE</span><b>{page} / {totalPages}</b></div>
@@ -907,6 +936,22 @@ export default function Home() {
         <div className="choice-actions">
           <button className="synthesize" disabled={busy || pendingStatsLoading || !pendingSpecimens} onClick={() => { setAmount(Math.min(Math.max(amount, 1), pendingSpecimens)); void generate("integrate"); }}>＋ INTEGRATE ACTIVE DNA</button>
           <button className="danger wide" disabled={busy} onClick={() => void generate("new")}>▶ INITIATE NEW SYNTHESIS</button>
+        </div>
+      </div></div>}
+
+      {clearPreviewOpen && <div className="modal-backdrop" onClick={() => { if (!busy) setClearPreviewOpen(false); }}><div className="synthesis-choice-modal clear-preview-modal" onClick={(e) => e.stopPropagation()}>
+        <button className="modal-close" disabled={busy} onClick={() => setClearPreviewOpen(false)}>×</button>
+        <div className="choice-eyebrow">CRYOGENIC SYSTEM // PREVIEW RESET</div>
+        <h2>CLEAR CRYOGENIC PREVIEW?</h2>
+        <p>This will permanently remove all recovered specimens from the current workspace and reset the synthesis history.</p>
+        <div className="choice-stats">
+          <span>RECOVERED SPECIMENS</span><b>{totalSpecimens.toLocaleString()}</b>
+          <span>DNA LAYERS</span><b>{layers.length} ACTIVE // PRESERVED</b>
+        </div>
+        <p>Your uploaded PNG assets and active DNA layers will remain intact. The workspace will return to Phase 2 ready for a new synthesis.</p>
+        <div className="choice-actions">
+          <button className="ghost wide" disabled={busy} onClick={() => setClearPreviewOpen(false)}>CANCEL</button>
+          <button className="danger wide" disabled={busy} onClick={() => void clearPreview()}>{busy ? "CLEARING..." : "× CLEAR PREVIEW"}</button>
         </div>
       </div></div>}
 
