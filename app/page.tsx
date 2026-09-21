@@ -654,8 +654,10 @@ export default function Home() {
       setStatus(mode === "integrate"
         ? `INTEGRATION COMPLETE // ${generated} SPECIMENS ADDED // ${finalTotal} TOTAL RECOVERED`
         : `SYNTHESIS COMPLETE // ${generated} SPECIMENS RECOVERED`);
-      setStage(3);
       setPage(1);
+      // Force Phase 3 to reload the freshly integrated IndexedDB records immediately.
+      setSpecimenRevision((current) => current + 1);
+      setStage(3);
     } catch (error) {
       console.error("Cryogenic synthesis failed.", error);
       setStatus("SYNTHESIS FAILED");
@@ -916,6 +918,7 @@ export default function Home() {
                 <label><span>PER PAGE</span><select value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }} disabled={busy}>{PAGE_SIZE_OPTIONS.map((size) => <option key={size} value={size}>{size}</option>)}</select></label>
                 <div><span>PREVIEW PAGE</span><b>{page} / {totalPages}</b></div>
               </div>
+              <div className="pagination pagination-top"><button className="ghost" disabled={page <= 1} onClick={() => { setSelected(null); setPage((current) => current - 1); }}>← PREVIOUS</button><span>PAGE {page} / {totalPages}</span><button className="ghost" disabled={page >= totalPages} onClick={() => { setSelected(null); setPage((current) => current + 1); }}>NEXT →</button></div>
               <div className="specimen-grid">{specimens.map((specimen) => <article className={`specimen ${deletingSpecimenId === specimen.id ? "specimen-deleting" : ""}`} key={specimen.id} onClick={() => { if (deletingSpecimenId === null) setSelected(specimen); }}><div className="specimen-image"><img src={specimen.url} alt={specimenName(specimen)} /></div><div className="specimen-footer"><b>SPECIMEN #{String(specimen.id).padStart(3, "0")}</b><span>{specimen.width} × {specimen.height}px</span></div><button disabled={deletingSpecimenId !== null} onClick={(e) => { e.stopPropagation(); download(specimen); }}>↓ PNG</button></article>)}</div>
               <div className="pagination"><button className="ghost" disabled={page <= 1} onClick={() => { setSelected(null); setPage((current) => current - 1); }}>← PREVIOUS</button><span>PAGE {page} / {totalPages}</span><button className="ghost" disabled={page >= totalPages} onClick={() => { setSelected(null); setPage((current) => current + 1); }}>NEXT →</button></div>
             </>}
