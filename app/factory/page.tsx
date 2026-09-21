@@ -1,7 +1,9 @@
 "use client";
 
-import { ChangeEvent, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import "./factory.css";
+import { ConnectWalletButton } from "../../components/web3/ConnectWalletButton";
 
 type Trait = {
   id?: string;
@@ -21,7 +23,23 @@ type CollectionItem = {
   assets?: Trait[];
 };
 
+type StoredSpecimen = {
+  id: number;
+  assets: Trait[];
+  blob: Blob;
+  width: number;
+  height: number;
+};
+
+type TraitSummary = {
+  layer: string;
+  name: string;
+  count: number;
+};
+
 const STORAGE_KEY = "cryogenic-room-approved-collection";
+const DB_NAME = "cryogenic-room-db";
+const DB_VERSION = 1;
 
 function normalizeItem(item: any, index: number): CollectionItem {
   return {
@@ -34,68 +52,155 @@ function normalizeItem(item: any, index: number): CollectionItem {
   };
 }
 
+function openCryogenicDatabase() {
+  return new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+function readPhaseThreeSpecimens() {
+  return new Promise<StoredSpecimen[]>((resolve, reject) => {
+    openCryogenicDatabase().then((db) => {
+      const transaction = db.transaction("specimens", "readonly");
+      const store = transaction.objectStore("specimens");
+      const request = store.openCursor();
+      const records: StoredSpecimen[] = [];
+
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) {
+          db.close();
+          resolve(records);
+          return;
+        }
+
+        records.push(cursor.value as StoredSpecimen);
+        cursor.continue();
+      };
+
+      request.onerror = () => {
+        db.close();
+        reject(request.error);
+      };
+    }).catch(reject);
+  });
+}
+
 export default function FactoryPage() {
   const [collection, setCollection] = useState<CollectionItem[]>([]);
   const [approved, setApproved] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<CollectionItem | null>(null);
   const [status, setStatus] = useState("FACTORY STANDBY");
-  const [reviewing, setReviewing] = useState(false);
+  const [traitSummary, setTraitSummary] = useState<TraitSummary[]>([]);
+  const [traitsOpen, setTraitsOpen] = useState(false);
+  const objectUrls = useRef<string[]>([]);
 
   const approvedItems = useMemo(
     () => collection.filter((item) => approved.has(String(item.id))),
     [collection, approved]
   );
 
+  const revokeImportedUrls = () => {
+    objectUrls.current.forEach((url) => URL.revokeObjectURL(url));
+    objectUrls.current = [];
+  };
+
+  useEffect(() => {
+    return () => revokeImportedUrls();
+  }, []);
+
   const importCollection = (items: CollectionItem[]) => {
+    revokeImportedUrls();
     const normalized = items.map(normalizeItem);
     setCollection(normalized);
     setApproved(new Set());
     setSelected(null);
+    setTraitSummary([]);
+    setTraitsOpen(false);
     setStatus(`${normalized.length} SPECIMENS LOADED`);
   };
 
-  const handleFile = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
+  const importPreview = async () => {
     try {
-      const parsed = JSON.parse(await file.text());
-      const items = Array.isArray(parsed)
-        ? parsed
-        : Array.isArray(parsed?.items)
-          ? parsed.items
-          : Array.isArray(parsed?.collection)
-            ? parsed.collection
-            : [];
+      setStatus("READING PHASE 03 PREVIEW...");
 
-      if (!items.length) {
-        setStatus("ERROR: NO COLLECTION ITEMS FOUND");
+      const records = await readPhaseThreeSpecimens();
+
+      if (!records.length) {
+        setStatus("NO PHASE 03 SPECIMENS FOUND");
         return;
       }
 
-      importCollection(items);
-    } catch {
-      setStatus("ERROR: INVALID COLLECTION JSON");
-    } finally {
-      event.target.value = "";
+      revokeImportedUrls();
+
+      const items = records.map((record) => {
+        const imageUrl = URL.createObjectURL(record.blob);
+        objectUrls.current.push(imageUrl);
+
+        return {
+          id: record.id,
+          name: `SPECIMEN #${String(record.id).padStart(3, "0")}`,
+          image: imageUrl,
+          dataUrl: imageUrl,
+          traits: record.assets,
+          assets: record.assets,
+        };
+      });
+
+      setCollection(items);
+      setApproved(new Set());
+      setSelected(null);
+      setTraitSummary([]);
+      setTraitsOpen(false);
+      setStatus(`PHASE 03 PREVIEW IMPORTED // ${items.length.toLocaleString()} SPECIMENS`);
+    } catch (error) {
+      console.error("Unable to import Phase 03 preview.", error);
+      setStatus("ERROR: PHASE 03 PREVIEW UNAVAILABLE");
     }
   };
 
-  const loadSaved = () => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) {
-        setStatus("NO SAVED APPROVED COLLECTION FOUND");
-        return;
-      }
-      const parsed = JSON.parse(raw);
-      const items = Array.isArray(parsed) ? parsed : parsed.items ?? [];
-      importCollection(items);
-      setApproved(new Set(items.map((item: any, index: number) => String(item?.id ?? index + 1))));
-      setStatus("APPROVED COLLECTION RESTORED");
-    } catch {
-      setStatus("ERROR: SAVED COLLECTION IS INVALID");
+  const readTraits = () => {
+    if (!collection.length) {
+      setStatus("NO IMPORTED SPECIMENS TO ANALYZE");
+      return;
     }
+
+    const counts = new Map<string, TraitSummary>();
+
+    collection.forEach((item) => {
+      (item.traits ?? item.assets ?? []).forEach((trait) => {
+        const layer = trait.layer ?? "TRAIT";
+        const name = trait.name.replace(/\.png$/i, "");
+        const key = `${layer}::${name}`;
+        const current = counts.get(key);
+
+        if (current) {
+          current.count += 1;
+        } else {
+          counts.set(key, { layer, name, count: 1 });
+        }
+      });
+    });
+
+    const summary = Array.from(counts.values()).sort((a, b) =>
+      a.layer.localeCompare(b.layer) || a.name.localeCompare(b.name)
+    );
+
+    setTraitSummary(summary);
+    setTraitsOpen(true);
+    setStatus(`TRAITS READ // ${summary.length} UNIQUE TRAITS`);
+  };
+
+  const clearImportedPreview = () => {
+    revokeImportedUrls();
+    setCollection([]);
+    setApproved(new Set());
+    setSelected(null);
+    setTraitSummary([]);
+    setTraitsOpen(false);
+    setStatus("IMPORTED PREVIEW CLEARED");
   };
 
   const toggleApproval = (id: string | number) => {
@@ -106,32 +211,6 @@ export default function FactoryPage() {
       else next.add(key);
       return next;
     });
-  };
-
-  const approveAll = () => {
-    setApproved(new Set(collection.map((item) => String(item.id))));
-    setStatus("ALL SPECIMENS APPROVED FOR FACTORY");
-  };
-
-  const clearApproval = () => {
-    setApproved(new Set());
-    setStatus("APPROVAL QUEUE CLEARED");
-  };
-
-  const randomReview = () => {
-    if (!collection.length) return;
-    setReviewing(true);
-    let ticks = 0;
-    const timer = window.setInterval(() => {
-      const item = collection[Math.floor(Math.random() * collection.length)];
-      setSelected(item);
-      ticks += 1;
-      if (ticks >= 12) {
-        window.clearInterval(timer);
-        setReviewing(false);
-        setStatus("RANDOM REVIEW COMPLETE");
-      }
-    }, 80);
   };
 
   const exportApproved = () => {
@@ -165,25 +244,35 @@ export default function FactoryPage() {
           <h1>CRYOGENIC FACTORY</h1>
           <p>APPROVED COLLECTION CONTROL // BLOCKCHAIN PREPARATION</p>
         </div>
-        <div className="factory-status">
-          <span>FACTORY STATUS</span>
-          <b>LOCAL</b>
-          <small>{status}</small>
+        <div className="factory-header-actions">
+          <Link className="factory-return-button" href="/">
+            ← CRYOGENIC ROOM
+          </Link>
+          <ConnectWalletButton />
+          <div className="factory-status">
+            <span>FACTORY STATUS</span>
+            <b>UNDER CONSTRUCTION</b>
+            <small>{status}</small>
+          </div>
         </div>
       </header>
 
       <section className="factory-console">
+        <div className="factory-construction">
+          <span>PHASE 04</span>
+          <strong>UNDER CONSTRUCTION</strong>
+        </div>
+
         <div className="factory-toolbar">
-          <label className="factory-button">
-            IMPORT APPROVED JSON
-            <input type="file" accept="application/json,.json" onChange={handleFile} />
-          </label>
-          <button className="factory-button" onClick={loadSaved}>LOAD SAVED</button>
-          <button className="factory-button" onClick={randomReview} disabled={!collection.length || reviewing}>
-            {reviewing ? "REVIEWING..." : "RANDOM REVIEW"}
+          <button className="factory-button" onClick={() => void importPreview()}>
+            IMPORT PREVIEW
           </button>
-          <button className="factory-button" onClick={approveAll} disabled={!collection.length}>APPROVE ALL</button>
-          <button className="factory-button" onClick={clearApproval} disabled={!approved.size}>CLEAR</button>
+          <button className="factory-button" onClick={readTraits} disabled={!collection.length}>
+            READ TRAITS
+          </button>
+          <button className="factory-button" onClick={clearImportedPreview} disabled={!collection.length}>
+            CLEAR
+          </button>
           <button className="factory-button primary" onClick={exportApproved} disabled={!approved.size}>
             EXPORT APPROVED
           </button>
@@ -199,15 +288,14 @@ export default function FactoryPage() {
         {!collection.length ? (
           <section className="factory-empty">
             <div className="factory-core">FACTORY</div>
-            <h2>NO APPROVED COLLECTION LOADED</h2>
+            <h2>NO PHASE 03 PREVIEW LOADED</h2>
             <p>
-              Phase 4 is isolated from Phases 1–3. Import the collection produced
-              by the generator when the approval bridge is ready.
+              Import the recovered specimens from Cryogenic Room Phase 3 to
+              continue working in the Factory.
             </p>
-            <label className="factory-import-large">
-              SELECT COLLECTION JSON
-              <input type="file" accept="application/json,.json" onChange={handleFile} />
-            </label>
+            <button className="factory-import-large" onClick={() => void importPreview()}>
+              IMPORT PHASE 03 PREVIEW
+            </button>
           </section>
         ) : (
           <section className="factory-grid">
@@ -244,9 +332,34 @@ export default function FactoryPage() {
 
       <footer className="factory-footer">
         <span>PHASE 01–03 // UNCHANGED</span>
-        <span>PHASE 04 // LOCAL FACTORY</span>
-        <span>NO WALLET // NO MINT // NO BLOCKCHAIN</span>
+        <span>PHASE 04 // UNDER CONSTRUCTION</span>
+        <span>WALLET READY // MINT NOT ACTIVE</span>
       </footer>
+
+      {traitsOpen && (
+        <div className="factory-modal-backdrop" onClick={() => setTraitsOpen(false)}>
+          <div className="factory-modal factory-traits-modal" onClick={(event) => event.stopPropagation()}>
+            <button className="factory-close" onClick={() => setTraitsOpen(false)}>×</button>
+            <div className="factory-modal-info factory-traits-panel">
+              <span>FACTORY ANALYSIS</span>
+              <h2>TRAIT INVENTORY</h2>
+              <p>TRAIT OCCURRENCES ACROSS IMPORTED PHASE 03 SPECIMENS</p>
+
+              <div className="factory-trait-summary">
+                {traitSummary.map((trait) => (
+                  <div className="factory-trait-summary-row" key={`${trait.layer}::${trait.name}`}>
+                    <div>
+                      <span>{trait.name}</span>
+                      <small>{trait.layer}</small>
+                    </div>
+                    <b>{trait.count.toLocaleString()}</b>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {selected && (
         <div className="factory-modal-backdrop" onClick={() => setSelected(null)}>

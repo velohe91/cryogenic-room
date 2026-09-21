@@ -18,7 +18,6 @@ A local-only, PNG-only NFT specimen generator built with Next.js, React and Type
 - Inspect canvas dimensions and every PNG filename used.
 - Delete specimens and automatically renumber them.
 - Download each final PNG.
-- No blockchain, API or external asset storage required.
 
 ## Run locally
 
