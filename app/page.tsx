@@ -325,6 +325,7 @@ export default function Home() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(500);
   const [selected, setSelected] = useState<Specimen | null>(null);
+  const [deletingSpecimenId, setDeletingSpecimenId] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("SYSTEM READY");
   const [hydrated, setHydrated] = useState(false);
@@ -637,19 +638,36 @@ export default function Home() {
   };
 
   const deleteSpecimen = async (id: number) => {
+    if (deletingSpecimenId !== null) return;
+
+    const removedIndex = specimens.findIndex((item) => item.id === id);
+    setDeletingSpecimenId(id);
+    setSelected(null);
+    setStatus(`DELETING SPECIMEN #${String(id).padStart(3, "0")} // UPDATING SEQUENCE...`);
+
+    // Optimistically update the visible page so the sequence visibly closes the gap immediately.
+    setSpecimens((current) =>
+      current
+        .filter((item) => item.id !== id)
+        .map((item) => item.id > id ? { ...item, id: item.id - 1 } : item),
+    );
+
     try {
-      const removedIndex = specimens.findIndex((item) => item.id === id);
       await deleteSpecimenRecord(id);
       await renumberSpecimensAfter(id);
       const nextTotal = Math.max(0, totalSpecimens - 1);
       setTotalSpecimens(nextTotal);
-      if (page > Math.max(1, Math.ceil(nextTotal / pageSize)) && removedIndex >= 0) setPage(Math.max(1, page - 1));
+      if (page > Math.max(1, Math.ceil(nextTotal / pageSize)) && removedIndex >= 0) {
+        setPage(Math.max(1, page - 1));
+      }
       setSpecimenRevision((current) => current + 1);
-      setSelected(null);
       setStatus("SPECIMEN DELETED // SEQUENCE UPDATED");
     } catch (error) {
       console.error("Unable to delete specimen.", error);
       setStatus("SPECIMEN DELETE FAILED");
+      setSpecimenRevision((current) => current + 1);
+    } finally {
+      setDeletingSpecimenId(null);
     }
   };
 
@@ -843,7 +861,7 @@ export default function Home() {
                 <label><span>PER PAGE</span><select value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }} disabled={busy}>{PAGE_SIZE_OPTIONS.map((size) => <option key={size} value={size}>{size}</option>)}</select></label>
                 <div><span>PREVIEW PAGE</span><b>{page} / {totalPages}</b></div>
               </div>
-              <div className="specimen-grid">{specimens.map((specimen) => <article className="specimen" key={specimen.id} onClick={() => setSelected(specimen)}><div className="specimen-image"><img src={specimen.url} alt={specimenName(specimen)} /></div><div className="specimen-footer"><b>SPECIMEN #{String(specimen.id).padStart(3, "0")}</b><span>{specimen.width} × {specimen.height}px</span></div><button onClick={(e) => { e.stopPropagation(); download(specimen); }}>↓ PNG</button></article>)}</div>
+              <div className="specimen-grid">{specimens.map((specimen) => <article className={`specimen ${deletingSpecimenId === specimen.id ? "specimen-deleting" : ""}`} key={specimen.id} onClick={() => { if (deletingSpecimenId === null) setSelected(specimen); }}><div className="specimen-image"><img src={specimen.url} alt={specimenName(specimen)} /></div><div className="specimen-footer"><b>SPECIMEN #{String(specimen.id).padStart(3, "0")}</b><span>{specimen.width} × {specimen.height}px</span></div><button disabled={deletingSpecimenId !== null} onClick={(e) => { e.stopPropagation(); download(specimen); }}>↓ PNG</button></article>)}</div>
               <div className="pagination"><button className="ghost" disabled={page <= 1} onClick={() => { setSelected(null); setPage((current) => current - 1); }}>← PREVIOUS</button><span>PAGE {page} / {totalPages}</span><button className="ghost" disabled={page >= totalPages} onClick={() => { setSelected(null); setPage((current) => current + 1); }}>NEXT →</button></div>
             </>}
           </section>}
@@ -866,7 +884,7 @@ export default function Home() {
         </div>
       </div></div>}
 
-      {selected && <div className="modal-backdrop" onClick={() => setSelected(null)}><div className="specimen-modal" onClick={(e) => e.stopPropagation()}><button className="modal-close" onClick={() => setSelected(null)}>×</button><div className="modal-image"><img src={selected.url} alt="" /></div><div className="modal-info"><span>RECOVERY REPORT</span><h2>SPECIMEN #{String(selected.id).padStart(3, "0")}</h2><p>CANVAS // {selected.width} × {selected.height}px</p><h3>DNA COMPONENTS</h3>{selected.assets.map((asset) => <div className="trait" key={asset.id}><span>{asset.name}</span><small>{asset.width} × {asset.height}px</small></div>)}<div className="modal-actions"><button className="synthesize" onClick={() => download(selected)}>↓ DOWNLOAD PNG</button><button className="danger wide" onClick={() => void deleteSpecimen(selected.id)}>DELETE SPECIMEN</button></div></div></div></div>}
+      {selected && <div className="modal-backdrop" onClick={() => setSelected(null)}><div className="specimen-modal" onClick={(e) => e.stopPropagation()}><button className="modal-close" onClick={() => setSelected(null)}>×</button><div className="modal-image"><img src={selected.url} alt="" /></div><div className="modal-info"><span>RECOVERY REPORT</span><h2>SPECIMEN #{String(selected.id).padStart(3, "0")}</h2><p>CANVAS // {selected.width} × {selected.height}px</p><h3>DNA COMPONENTS</h3>{selected.assets.map((asset) => <div className="trait" key={asset.id}><span>{asset.name}</span><small>{asset.width} × {asset.height}px</small></div>)}<div className="modal-actions"><button className="synthesize" disabled={deletingSpecimenId !== null} onClick={() => download(selected)}>↓ DOWNLOAD PNG</button><button className="danger wide" disabled={deletingSpecimenId !== null} onClick={() => void deleteSpecimen(selected.id)}>{deletingSpecimenId === selected.id ? "DELETING..." : "DELETE SPECIMEN"}</button></div></div></div></div>}
     </main>
   );
 }
