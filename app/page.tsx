@@ -1074,6 +1074,19 @@ export default function Home() {
         <p>The active DNA no longer matches the DNA configurations used in the current preview.</p>
         <div className="choice-stats"><span>CURRENT PREVIEW</span><b>{totalSpecimens.toLocaleString()} RECOVERED</b><span>ACTIVE DNA</span><b>{usableLayers.length} LAYERS // {possible.toLocaleString()} POSSIBLE</b></div>
         <p>Would you like to integrate the active DNA into the current preview or initiate a new cryogenic synthesis?</p>
+        <div className="integration-count-control">
+          <label htmlFor="dna-change-integration-count">INTEGRATION COUNT</label>
+          <input
+            id="dna-change-integration-count"
+            type="number"
+            min="1"
+            max={Math.max(1, pendingSpecimens)}
+            value={amount}
+            onChange={(e) => setAmount(Math.max(1, Number(e.target.value) || 1))}
+            disabled={busy || pendingStatsLoading}
+          />
+          <small>{pendingStatsLoading ? "CALCULATING AVAILABLE SPECIMENS..." : `${pendingSpecimens.toLocaleString()} UNIQUE SPECIMENS AVAILABLE FOR INTEGRATION`}</small>
+        </div>
         <div className="choice-actions">
           <button className="synthesize" disabled={busy || pendingStatsLoading || !pendingSpecimens} onClick={() => { setAmount(Math.min(Math.max(amount, 1), pendingSpecimens)); void generate("integrate"); }}>＋ INTEGRATE ACTIVE DNA</button>
           <button className="danger wide" disabled={busy} onClick={() => void generate("new")}>▶ INITIATE NEW SYNTHESIS</button>
