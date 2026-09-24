@@ -417,6 +417,16 @@ export default function Home() {
 
   const totalPages = Math.max(1, Math.ceil(totalSpecimens / pageSize));
 
+  const returnToTop = () => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const navigateFromBottom = (nextStage: number) => {
+    setSelected(null);
+    setStage(nextStage);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
   useEffect(() => {
     let cancelled = false;
 
@@ -1030,6 +1040,11 @@ export default function Home() {
               <div className="pagination pagination-top"><button className="ghost" disabled={page <= 1} onClick={() => { setSelected(null); setPage((current) => current - 1); }}>← PREVIOUS</button><span>PAGE {page} / {totalPages}</span><button className="ghost" disabled={page >= totalPages} onClick={() => { setSelected(null); setPage((current) => current + 1); }}>NEXT →</button></div>
               <div className="specimen-grid">{specimens.map((specimen) => <article className={`specimen ${deletingSpecimenId === specimen.id ? "specimen-deleting" : ""} ${selectedSpecimenIds.has(specimen.id) ? "specimen-selected" : ""}`} key={specimen.id} onClick={() => { if (deletingSpecimenId === null) setSelected(specimen); }}><button className={`specimen-select ${selectedSpecimenIds.has(specimen.id) ? "active" : ""}`} aria-label={selectedSpecimenIds.has(specimen.id) ? `Deselect specimen ${specimen.id}` : `Select specimen ${specimen.id}`} disabled={deletingSpecimenId !== null} onClick={(e) => { e.stopPropagation(); toggleSpecimenSelection(specimen.id); }}>{selectedSpecimenIds.has(specimen.id) ? "✓" : "+"}</button><div className="specimen-image"><img src={specimen.url} alt={specimenName(specimen)} /></div><div className="specimen-footer"><b>SPECIMEN #{String(specimen.id).padStart(3, "0")}</b><span>{specimen.width} × {specimen.height}px</span></div><button disabled={deletingSpecimenId !== null} onClick={(e) => { e.stopPropagation(); download(specimen); }}>↓ PNG</button></article>)}</div>
               <div className="pagination"><button className="ghost" disabled={page <= 1} onClick={() => { setSelected(null); setPage((current) => current - 1); }}>← PREVIOUS</button><span>PAGE {page} / {totalPages}</span><button className="ghost" disabled={page >= totalPages} onClick={() => { setSelected(null); setPage((current) => current + 1); }}>NEXT →</button></div>
+              <nav className="stage-nav stage-nav-bottom" aria-label="Phase navigation">
+                <button onClick={() => navigateFromBottom(1)}>01 — BUILD THE DNA</button>
+                <button onClick={() => navigateFromBottom(2)}>02 — GENERATE</button>
+                <button className="active" onClick={returnToTop}>03 — PREVIEW ↑</button>
+              </nav>
             </>}
           </section>}
         </div>
