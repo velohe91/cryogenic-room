@@ -735,6 +735,14 @@ export default function Home() {
 
   const clearSpecimenSelection = () => setSelectedSpecimenIds(new Set());
 
+  const selectAllCurrentPage = () => {
+    setSelectedSpecimenIds((current) => {
+      const next = new Set(current);
+      specimens.forEach((specimen) => next.add(specimen.id));
+      return next;
+    });
+  };
+
   const clearPreview = async () => {
     if (busy || deletingSpecimenId !== null || totalSpecimens === 0) return;
 
@@ -1032,7 +1040,7 @@ export default function Home() {
             {totalSpecimens === 0 ? <div className="empty">NO SPECIMENS RECOVERED.<br />RUN CRYOGENIC SYNTHESIS.</div> : <>
               <div className="preview-toolbar">
                 <button className="danger clear-preview-button" disabled={busy || deletingSpecimenId !== null} onClick={() => setClearPreviewOpen(true)}>× CLEAR PREVIEW</button>
-                {selectedSpecimenIds.size > 0 && <div className="selection-actions"><span>{selectedSpecimenIds.size} SELECTED</span><button onClick={() => void downloadSelectedZip()}>↓ DOWNLOAD SELECTED</button><button className="danger" disabled={busy || deletingSpecimenId !== null} onClick={() => void deleteSelected()}>× DELETE SELECTED</button><button className="ghost" onClick={clearSpecimenSelection}>CLEAR SELECTION</button></div>}
+                {selectedSpecimenIds.size > 0 && <div className="selection-actions"><span>{selectedSpecimenIds.size} SELECTED</span><button onClick={selectAllCurrentPage} disabled={busy || deletingSpecimenId !== null}>＋ SELECT ALL</button><button className="ghost" onClick={clearSpecimenSelection}>CLEAR SELECTION</button><button onClick={() => void downloadSelectedZip()}>↓ DOWNLOAD SELECTED</button><button className="danger" disabled={busy || deletingSpecimenId !== null} onClick={() => void deleteSelected()}>× DELETE SELECTED</button></div>}
                 <div><span>DISPLAYING</span><b>{currentRangeStart} — {currentRangeEnd} / {totalSpecimens.toLocaleString()}</b></div>
                 <label><span>PER PAGE</span><select value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }} disabled={busy}>{PAGE_SIZE_OPTIONS.map((size) => <option key={size} value={size}>{size}</option>)}</select></label>
                 <div><span>PREVIEW PAGE</span><b>{page} / {totalPages}</b></div>
