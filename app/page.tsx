@@ -181,6 +181,27 @@ async function getSpecimenPage(page: number, pageSize: number) {
   });
 }
 
+async function getAllSpecimenRecords() {
+  const db = await openDatabase();
+  return new Promise<StoredSpecimen[]>((resolve, reject) => {
+    const store = db.transaction("specimens", "readonly").objectStore("specimens");
+    const request = store.openCursor();
+    const result: StoredSpecimen[] = [];
+
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor) {
+        db.close();
+        resolve(result);
+        return;
+      }
+      result.push(cursor.value as StoredSpecimen);
+      cursor.continue();
+    };
+    request.onerror = () => { db.close(); reject(request.error); };
+  });
+}
+
 async function deleteSpecimenRecord(id: number) {
   const db = await openDatabase();
   return new Promise<void>((resolve, reject) => {
@@ -749,35 +770,43 @@ export default function Home() {
   const currentRangeEnd = Math.min(page * pageSize, totalSpecimens);
 
   const downloadPreviewZip = async () => {
-    if (!specimens.length) return;
+    if (!totalSpecimens) return;
+
+    const allSpecimens = await getAllSpecimenRecords();
+    if (!allSpecimens.length) return;
+
     const zip = new JSZip();
     const previewFolder = zip.folder("Preview");
     if (!previewFolder) return;
 
     const reportHeader = ["specimen", "canvas_width", "canvas_height", "dna_components"];
-    const reportRows = specimens.map((specimen) => [
-      specimenName(specimen),
+    const reportRows = allSpecimens.map((specimen) => [
+      specimenName({ ...specimen, url: "" }),
       specimen.width,
       specimen.height,
       specimen.assets.map((asset) => `${asset.layerName}: ${asset.name}`).join(" | "),
     ]);
 
     previewFolder.file("preview-report.csv", [reportHeader, ...reportRows].map((row) => row.map(csvCell).join(",")).join("\n"));
-    specimens.forEach((specimen) => previewFolder.file(`${specimen.id}.png`, specimen.blob));
+    allSpecimens.forEach((specimen) => previewFolder.file(`${specimen.id}.png`, specimen.blob));
 
     const blob = await zip.generateAsync({ type: "blob" });
-    downloadZipBlob(blob, `Cryogenic-Room-Preview-Page-${page}.zip`);
+    downloadZipBlob(blob, "Cryogenic-Room-Preview.zip");
   };
 
   const downloadOpenSeaZip = async () => {
-    if (!specimens.length) return;
+    if (!totalSpecimens) return;
+
+    const allSpecimens = await getAllSpecimenRecords();
+    if (!allSpecimens.length) return;
+
     const zip = new JSZip();
     const mediaFolder = zip.folder("Media");
     if (!mediaFolder) return;
 
-    const traitNames = Array.from(new Set(specimens.flatMap((specimen) => specimen.assets.map((asset) => asset.layerName))));
+    const traitNames = Array.from(new Set(allSpecimens.flatMap((specimen) => specimen.assets.map((asset) => asset.layerName))));
     const metadataHeader = ["tokenID", "name", "description", "file_name", "external_url", ...traitNames.map((name) => `attributes[${name}]`)];
-    const metadataRows = specimens.map((specimen) => {
+    const metadataRows = allSpecimens.map((specimen) => {
       const traits = new Map<string, string>();
       specimen.assets.forEach((asset) => traits.set(asset.layerName, traitValue(asset.name)));
       const description = [
@@ -785,24 +814,24 @@ export default function Home() {
         `Canvas // ${specimen.width} x ${specimen.height}px.`,
         `DNA Components // ${specimen.assets.map((asset) => asset.name).join(" | ")}.`,
       ].join(" ");
-      return [specimen.id, specimenName(specimen), description, `${specimen.id}.png`, "", ...traitNames.map((name) => traits.get(name) || "")];
+      return [specimen.id, specimenName({ ...specimen, url: "" }), description, `${specimen.id}.png`, "", ...traitNames.map((name) => traits.get(name) || "")];
     });
 
     zip.file("metadata-file.csv", [metadataHeader, ...metadataRows].map((row) => row.map(csvCell).join(",")).join("\n"));
     zip.file("README.txt", [
       "CRYOGENIC ROOM // OPENSEA METADATA PACKAGE",
       "",
-      `Items: ${specimens.length}`,
+      `Items: ${allSpecimens.length}`,
       "",
       "Media/ contains the PNG files referenced by metadata-file.csv.",
       "metadata-file.csv contains token IDs, names, descriptions, file names, and traits derived from the Phase 1 DNA layers.",
       "",
       "Upload this package through OpenSea's metadata upload flow after your collection contract is ready.",
     ].join("\n"));
-    specimens.forEach((specimen) => mediaFolder.file(`${specimen.id}.png`, specimen.blob));
+    allSpecimens.forEach((specimen) => mediaFolder.file(`${specimen.id}.png`, specimen.blob));
 
     const blob = await zip.generateAsync({ type: "blob" });
-    downloadZipBlob(blob, `Cryogenic-Room-OpenSea-Drop-Page-${page}.zip`);
+    downloadZipBlob(blob, "Cryogenic-Room-OpenSea-Drop.zip");
   };
 
   return (
