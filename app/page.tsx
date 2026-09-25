@@ -606,6 +606,17 @@ export default function Home() {
 
   const addLayer = () => setLayers((current) => [...current, { id: crypto.randomUUID(), name: `Layer ${current.length + 1}`, assets: [] }]);
 
+  const moveLayer = (layerId: string, direction: -1 | 1) => {
+    setLayers((current) => {
+      const index = current.findIndex((layer) => layer.id === layerId);
+      const targetIndex = index + direction;
+      if (index < 0 || targetIndex < 0 || targetIndex >= current.length) return current;
+      const next = [...current];
+      [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
+      return next;
+    });
+  };
+
   const removeLayer = (layerId: string) => {
     setLayers((current) => {
       const layer = current.find((item) => item.id === layerId);
@@ -953,7 +964,7 @@ export default function Home() {
           </nav>
 
           {stage === 1 && <section className="module"><div className="module-title"><div><span>LAB MODULE 01</span><h2>BUILD THE DNA</h2><p>Assemble the visual layers of the specimen.</p></div><div className="counter">{layers.length}<small>LAYERS</small></div></div>
-            <div className="layers-grid">{layers.map((layer, index) => <article className="layer-card" key={layer.id}><div className="layer-head"><div><span>DNA SECTOR {String(index + 1).padStart(2, "0")}</span><input value={layer.name} onChange={(e) => setLayers((current) => current.map((item) => item.id === layer.id ? { ...item, name: e.target.value } : item))} /></div><button className="danger tiny" onClick={() => removeLayer(layer.id)}>×</button></div><label className="upload-zone"><strong>＋ INSERT PNG</strong><small>TRANSPARENT TRAIT ASSET</small><input type="file" accept="image/png" multiple onChange={(e) => uploadAssets(e, layer.id)} /></label><div className="asset-list">{layer.assets.map((asset) => <div className="asset-row" key={asset.id}><img src={asset.url} alt="" /><span title={asset.name}>{asset.name}</span><button className="danger" onClick={() => removeAsset(layer.id, asset.id)}>×</button></div>)}</div></article>)}</div>
+            <div className="layers-grid">{layers.map((layer, index) => <article className="layer-card" key={layer.id}><div className="layer-head"><div><span>DNA SECTOR {String(index + 1).padStart(2, "0")}</span><input value={layer.name} onChange={(e) => setLayers((current) => current.map((item) => item.id === layer.id ? { ...item, name: e.target.value } : item))} /></div><div className="layer-controls"><button className="layer-move" aria-label="Move layer up" disabled={index === 0} onClick={() => moveLayer(layer.id, -1)}>↑</button><button className="layer-move" aria-label="Move layer down" disabled={index === layers.length - 1} onClick={() => moveLayer(layer.id, 1)}>↓</button><button className="danger tiny" onClick={() => removeLayer(layer.id)}>×</button></div></div><label className="upload-zone"><strong>＋ INSERT PNG</strong><small>TRANSPARENT TRAIT ASSET</small><input type="file" accept="image/png" multiple onChange={(e) => uploadAssets(e, layer.id)} /></label><div className="asset-list">{layer.assets.map((asset) => <div className="asset-row" key={asset.id}><img src={asset.url} alt="" /><span title={asset.name}>{asset.name}</span><button className="danger" onClick={() => removeAsset(layer.id, asset.id)}>×</button></div>)}</div></article>)}</div>
             <button className="ghost wide" onClick={addLayer}>＋ ADD DNA LAYER</button>
           </section>}
 
